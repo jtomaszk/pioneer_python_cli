@@ -1,4 +1,4 @@
-#!/opt/local/bin/python
+#!/usr/bin/python
 
 import sys
 import telnetlib
@@ -6,13 +6,14 @@ import os
 import time
 import urllib
 import threading
+import socket
 from modes_display import modeDisplayMap
 from modes_set import modeSetMap, inverseModeSetMap
 
 from optparse import OptionParser
 
 # HOST = "10.0.1.32"      
-HOST = "192.168.1.70"
+HOST = "192.168.1.52"
 
 _mode = None
 
@@ -124,6 +125,7 @@ def print_help():
 
 def send(tn, s):
     tn.write(s + b"\r\n")
+    return readline(tn)
 
 def readline(tn):
     s = tn.read_until(b"\r\n")
@@ -309,105 +311,28 @@ def decodeGeh(s):
 
 # We really want two threads: one with the output, another with the commands.
 
-def read_loop(tn):
+def read_loop(c):
     sys.stdout.flush()
+
     count = 0
     while True:
       count += 1
-      s = readline(tn)
-      err = parseError(s)
-      if err:
-         print count, "ERROR: ", err
-         continue
-      tone = decodeTone(s)
-      if tone:
-	print tone
-	continue
-      geh = decodeGeh(s)
-      if geh:
-	print geh
-	continue
-      fl = decodeFL(s)
-      if fl:
-         sys.stdout.write("%s\r" % fl)
-         continue
-      if s.startswith('FN'):
-	 input = inputMap.get(s[2:], "unknown (%s)" % s)
-	 print "Input is", input
-	 continue
-      if s.startswith('ATW'):
-	 print "loudness is ",
-	 print "on" if s == "ATW1" else "off"
-	 continue
-      if s.startswith('ATC'):
-	 print "eq is ",
-	 print "on" if s == "ATC1" else "off"
-	 continue
-      if s.startswith('ATD'):
-	 print "standing wave is ",
-	 print "on" if s == "ATD1" else "off"
-	 continue
-      if s.startswith('ATE'):
-	 num = s[3:]
-	 if num >= "00" and num <= "16":
-	    print "Phase control: " + num + "ms"
-	 else:
-	    if num == "97":
-		print "Phase control: AUTO"
-	    elif num == "98":
-		print "Phase control: UP"
-	    elif num == "99":
-		print "Phase control: DOWN"
-	    else:
-		print "Phase control: unknown"
-	 continue
-      m = translateMode(s)
-      if m:
-      	print "Listening mode is %s (%s)" % (m, s)
-	continue
-      if s.startswith('AST') and decodeAST(s):
-	continue
-      if s.startswith('SR'):
-	code = s[2:]
-	v = modeSetMap.get(code, None)
-	if v:
-	   print "mode is %s (%s)" % (v, s)
-	   continue
-      # default:
-      print count, s
+      c.read_response(count)
 
-def write_loop(tn):
+def write_loop(c):
     while True:
       command = raw_input("command: ").strip()
       if command == "quit" or command == "exit":
 	  print "Read thread says bye-bye!"
 	  # sys.exit()
 	  return
-      if command == "status":
-	  get_status(tn)
-          continue
-      if command == "help" or command == "?":
+      elif command == "help" or command == "?":
 	 print_help()
-	 continue
-      if command.startswith("select"):
-	 s = second_arg(command).rjust(2,"0") + "GFI"
-	 send(tn, s)
-	 continue
-      if command.startswith("display"):
-	 s = second_arg(command).rjust(5, "0") + "GCI" # may need to pad with zeros.
-	 send(tn, s)
-	 continue
-      s = commandMap.get(command, None)
-      if s:
-      	send(tn, s)
-	continue
-      if command.startswith("mode"):
-	change_mode(tn, command)
-	continue
-      if command <> "":
-	print "Sending raw command " + command
-    	sys.stdout.flush()
-	send(tn, command) # try original one
+      else:
+         ret = run_command(c, command)
+         print ret
+
+      
 
 def change_mode(tn, command):
     l = command.split(" ")
@@ -422,10 +347,10 @@ def change_mode(tn, command):
     return None
 
 def second_arg(cmd):
-	l = cmd.split(" ")
-	if len(l) < 2:
-	   return ""
-	return l[1].strip()
+    l = cmd.split(" ")
+    if len(l) < 2:
+        return ""
+    return l[1].strip()
 
 # Listening mode, in the order they appear in the spreadsheet. 
 # looks like PDF doc has different ones (it's from 2010)
@@ -440,21 +365,138 @@ def translateMode(s):
     return m or "Unknown"
 
 
-def get_status(tn):
-      send(tn, "?BA")
-      send(tn, "?TR")
-      send(tn, "?TO")
-      send(tn, "?L")
-      send(tn, "?AST")
-
 
 class ReadThread(threading.Thread):
       """ This thread reads the lines coming back from telnet """
-      def __init__(self, tn):
-	self.tn = tn
+      def __init__(self, c):
+	self.c = c
 	threading.Thread.__init__(self)
       def run(self):
-	read_loop(self.tn)
+	read_loop(self.c)
+
+class Status(dict):
+    def __init__(self, status, result):
+       dict.__init__(self, ok=self.ok, status=status, result=result)
+       self.status = status
+       self.result = result
+
+class StatusOk(Status):
+    ok = True
+       
+class StatusError(Status):
+    ok = False 
+
+class Connection:
+    tn = None
+    def __init__(self, host):
+        self.host = host
+    def get_tn(self):
+        return self.tn
+    def is_connected(self):
+        return self.tn is not None
+    def get_status(self):
+        #s = send(self.tn, "?BA")
+        s = send(self.tn, "?L")
+        s = self.parse_line(s)
+        return StatusOk("ba", s)
+#      send(tn, "?TR")
+#      send(tn, "?TO")
+#      send(tn, "?L")
+#      send(tn, "?AST")
+
+    def connect(self):
+        try:
+            self.tn = telnetlib.Telnet(HOST)
+            self.tn.set_debuglevel(100)
+            time.sleep(1)
+            s = self.tn.read_very_eager()
+            print "very eager: ", s
+        except:
+            print "connect error"          
+        return self.tn
+    def run_command(self, command):
+        tn = self.tn
+        if not self.is_connected():
+            tn = self.connect()
+
+        if self.tn is None:
+            return StatusError("error", "error connect")
+
+        if command == "status":
+            return self.get_status()
+        elif command.startswith("select"):
+            s = second_arg(command).rjust(2,"0") + "GFI"
+            return send(tn, s)
+        elif command.startswith("display"):
+            s = second_arg(command).rjust(5, "0") + "GCI" # may need to pad with zeros.
+	    return send(tn, s)
+        elif command.startswith("mode"):
+            return change_mode(tn, command)
+        elif commandMap.get(command, None):
+            s = commandMap.get(command, None)
+            return send(tn, s)
+        elif command <> "":
+            return send(tn, command) # try original one
+        else:
+            return "Invalid command"
+
+    def read_response(self, count):
+        if not self.is_connected():
+            return count, "ERROR", "NOT CONNECTED"
+    
+        tn = self.get_tn()
+
+        s = readline(tn)
+
+    def parse_line(self, s):
+        err = parseError(s)
+        if err:
+            return count, "ERROR: ", err
+       
+        tone = decodeTone(s)
+        if tone:
+	    return tone
+
+        geh = decodeGeh(s)
+        if geh:
+	    return geh
+        fl = decodeFL(s)
+        if fl:
+            return "%s\r" % fl
+        if s.startswith('FN'):
+            input = inputMap.get(s[2:], "unknown (%s)" % s)
+            return "Input is", input
+        if s.startswith('ATW'):
+            return "loudness is ", "on" if s == "ATW1" else "off"
+        if s.startswith('ATC'):
+            return "eq is ", "on" if s == "ATC1" else "off"
+        if s.startswith('ATD'):
+            return "standing wave is ", "on" if s == "ATD1" else "off"
+        if s.startswith('ATE'):
+            num = s[3:]
+            if num >= "00" and num <= "16":
+                return "Phase control: " + num + "ms"
+            elif num == "97":
+	        return "Phase control: AUTO"
+            elif num == "98":
+	        return "Phase control: UP"
+            elif num == "99":
+                return "Phase control: DOWN"
+            else:
+                return "Phase control: unknown"
+        m = translateMode(s)
+        if m:
+      	    return "Listening mode is %s (%s)" % (m, s)	
+        elif s.startswith('AST') and decodeAST(s):
+	    return None
+        elif s.startswith('SR'):
+	    code = s[2:]
+	    v = modeSetMap.get(code, None)
+	    if v:
+	        return "mode is %s (%s)" % (v, s)
+    # default:
+        return count, s
+
 
 
 # TODO: add command-line options to control, for example, displaying the info from the screen;
@@ -468,19 +510,13 @@ if __name__ == "__main__":
       if len(args) > 0:
 	 HOST = args[0]
 
-      tn = telnetlib.Telnet(HOST)
-      # tn.set_debuglevel(100)
+      c = Connection(HOST)
 
-      time.sleep(1)
+#      send(tn, "?P") # to wake up
 
-      s = tn.read_very_eager()
-      print "very eager: ", s
-
-      send(tn, "?P") # to wake up
-
-      readThread = ReadThread(tn)
+      readThread = ReadThread(c)
       readThread.daemon = True
       readThread.start()
 
       # the main thread does the writing, everyting exits when it does:
-      write_loop(tn)
+      write_loop(c)
