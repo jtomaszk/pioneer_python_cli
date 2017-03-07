@@ -7,6 +7,7 @@ import re
 from commands import response_on_off
 from modes_display import modeDisplayMap
 from modes_set import inverseModeSetMap, modeSetMap
+from decimal import Decimal
 
 HOST = "192.168.1.52"
 
@@ -351,6 +352,15 @@ def parse_line(cmd_raw):
     if response_on_off.has_key(s):
         return on_off_value(cmd_raw)
 
+    if s.startswith('FR'):
+        band_map = {
+            'A': 'AM',
+            'F': 'FM',
+        }
+        band = band_map[cmd_raw[2:3]]
+        freq = Decimal(cmd_raw[3:]) / 100
+        return str(freq) + " " + band 
+    
     tone = decode_tone(cmd_raw)
     if tone:
         return tone
@@ -358,13 +368,13 @@ def parse_line(cmd_raw):
     geh = decode_geh(cmd_raw)
     if geh:
         return geh
-    fl = decode_fl(s)
+    fl = decode_fl(cmd_raw)
     if fl:
         return "%s\r" % fl
     if s.startswith('FN'):
         return inputMap.get(cmd_raw[2:], "unknown (%s)" % cmd_raw)
     elif s.startswith('ATE'):
-        num = s[3:]
+        num = cmd_raw[3:]
         if "00" <= num <= "16":  # Phase control:
             return num + "ms"
         elif num == "97":
@@ -378,14 +388,14 @@ def parse_line(cmd_raw):
     m = translate_mode(s)
     if m:  # Listening mode is
         return "%s (%s)" % (m, s)
-    elif s.startswith('AST') and decode_ast(s):
+    elif s.startswith('AST') and decode_ast(cmd_raw):
         return None
     elif s.startswith('SR'):
-        code = s[2:]
+        code = cmd_raw[2:]
         v = modeSetMap.get(code, None)
         if v:  # mode is
-            return "%s (%s)" % (v, s)
-    return s
+            return "%s (%s)" % (v, cmd_raw)
+    return cmd_raw
 
 
 def on_off_value(s):

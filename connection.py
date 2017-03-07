@@ -39,30 +39,40 @@ class Connection:
     def send_query_and_convert(self, command):
         raw_command = "?" + self.commands_reversed[command]
         raw = send(self.tn, raw_command)
-        parsed = parse_line(raw)  # TODO change count
+        parsed = parse_line(raw) 
         return StatusParam(command, parsed)
+
+    def send_and_convert(self, raw_command):
+        raw = send(self.tn, raw_command)
+        parsed = parse_line(raw)  
+        return StatusParam(raw_command, parsed)
 
     def connect(self):
         try:
-            self.tn = telnetlib.Telnet(HOST)
-            self.tn.set_debuglevel(100)
+            tn = telnetlib.Telnet(HOST)
+            tn.set_debuglevel(100)
             time.sleep(1)
             s = self.tn.read_very_eager()
             print "very eager: ", s
         except:
+            tn = None
             print "connect error"
-        return self.tn
+        return tn
 
-    def run_command(self, command):
-        tn = self.tn
+    def run_command(self, command_list):
         if not self.is_connected():
-            tn = self.connect()
+            self.tn = self.connect()
 
         if self.tn is None:
-            return StatusError(None, msg="offline")
+            return StatusError(StatusParam("POWER", "OFFLINE"))
+
+        command = command_list[0]
 
         if command == "status":
             return self.get_status()
+        elif command == 'power':
+            s = commandMap.get(command_list[1], None)
+            return self.send_and_convert(s)
         elif command.startswith("select"):
             s = second_arg(command).rjust(2, "0") + "GFI"
             return self.send_query_and_convert(s)
