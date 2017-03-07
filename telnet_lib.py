@@ -113,7 +113,6 @@ commandMap = {
 
 def send(tn, s):
     tn.write(s + b"\r\n")
-    return read_line(tn)
 
 
 def read_line(tn):
@@ -342,15 +341,22 @@ def translate_mode(s):
     return m or "Unknown"
 
 
+def raw_to_simple(cmd_raw):
+    val = re.sub('[^A-Z]', '', cmd_raw)
+    if val.startswith('F'):
+        return val[:2]
+    return val
+
+
 def parse_line(cmd_raw):
     err = parse_error(cmd_raw)
     if err:
         return "ERROR: ", err
 
-    s = re.sub('[^A-Z]', '', cmd_raw)
+    s = raw_to_simple(cmd_raw)
 
-    if response_on_off.has_key(s):
-        return on_off_value(cmd_raw)
+    if s in response_on_off:
+        return s, on_off_value(cmd_raw)
 
     if s.startswith('FR'):
         band_map = {
@@ -359,43 +365,43 @@ def parse_line(cmd_raw):
         }
         band = band_map[cmd_raw[2:3]]
         freq = Decimal(cmd_raw[3:]) / 100
-        return str(freq) + " " + band 
+        return s, str(freq) + " " + band
     
     tone = decode_tone(cmd_raw)
     if tone:
-        return tone
+        return s, tone
 
     geh = decode_geh(cmd_raw)
     if geh:
-        return geh
+        return s, geh
     fl = decode_fl(cmd_raw)
     if fl:
-        return "%s\r" % fl
+        return s, "%s\r" % fl
     if s.startswith('FN'):
-        return inputMap.get(cmd_raw[2:], "unknown (%s)" % cmd_raw)
+        return s, inputMap.get(cmd_raw[2:], "unknown (%s)" % cmd_raw)
     elif s.startswith('ATE'):
         num = cmd_raw[3:]
         if "00" <= num <= "16":  # Phase control:
-            return num + "ms"
+            return s, num + "ms"
         elif num == "97":
-            return "AUTO"
+            return s, "AUTO"
         elif num == "98":
-            return "UP"
+            return s, "UP"
         elif num == "99":
-            return "DOWN"
+            return s, "DOWN"
         else:
-            return "unknown"
+            return s, "unknown"
     m = translate_mode(s)
     if m:  # Listening mode is
-        return "%s (%s)" % (m, s)
+        return s, "%s (%s)" % (m, s)
     elif s.startswith('AST') and decode_ast(cmd_raw):
-        return None
+        return s, None
     elif s.startswith('SR'):
         code = cmd_raw[2:]
         v = modeSetMap.get(code, None)
         if v:  # mode is
-            return "%s (%s)" % (v, cmd_raw)
-    return cmd_raw
+            return s, "%s (%s)" % (v, cmd_raw)
+    return s, cmd_raw
 
 
 def on_off_value(s):

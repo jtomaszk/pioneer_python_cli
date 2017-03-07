@@ -44,7 +44,7 @@ def write_loop(c):
         elif command == "help" or command == "?":
             print_help()
         else:
-            response = c.run_command(command)
+            response = c.run_command([command])
             print json.dumps(response, sort_keys=True, indent=4)
 
 

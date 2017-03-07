@@ -1,18 +1,22 @@
 commands = {
-    "P": "POWER",
-    "V": "VOLUME",
-    "M": "MUTE",
-    "F": "INPUT",
-    "S": "LISTENING_MODE",
-    "L": "PLAYING_LISTENING_MODE",
-    "FR": "TUNER_FRQ",
-    "PR": "TUNER_PRESENT"
+    # response: [name, query]
+    'ATW': ['LOUDNESS', '?V'],
+    'VOL': ['VOLUME', '?V'],
+    'ATC': ['EQ'],
+    'ATD': ['STANDING_WAVE'],
+    'PWR': ['POWER', '?P'],
+    'MUT': ['MUTE', '?M'],
+    'FN': ['INPUT', '?F'],
+    'SR': ['LISTENING_MODE', '?S'],
+    'LM': ['PLAYING_LISTENING_MODE', '?L'],
+    'FR': ['TUNER_FRQ', '?FR'],
+    'PRA': ['TUNER_PRESENT', '?PR']
 }
 
 response_on_off = {
-    'ATW': 'LOUDNESS',
-    'ATC': 'EQ',
-    'PWR': 'POWER',
-    'MUT': 'MUTE',
-    'ATD': 'STANDING_WAVE'
+    'ATW',
+    'ATC',
+    'PWR',
+    'MUT',
+    'ATD'
 }
